@@ -1,0 +1,18 @@
+TEST:
+  DEVICE: "cuda:0"
+  METRIC: ['F1']
+  DATASET: "H_W"
+  SEED: 2024
+  BATCH_SIZE: 256
+  SAVE_FOLDER: "test_results"
+
+MODEL:
+  MODEL_ID: "hwx"
+  TRAINED_MODEL_PATH: "checkpoints/train_hwx_h_w_BCE_2024-04-09_17-20-25/checkpoint_1_epoch.pkl"
+
+DATASET:
+  H_W:
+    DATASET_ID: "h_w"
+    PATH: "data/h_w"
+
+

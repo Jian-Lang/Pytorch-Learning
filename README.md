@@ -1,9 +1,9 @@
 # Pytorch-Learning
 #### **中文版本：**
 
-此仓库用于共享 **Pytorch Learning** 的学习材料。 👻👻👻
+此仓库用于共享 **Pytorch Learning** 的学习材料。 🚀🚀🚀
 
-我首先将分享一些有用的材料。而且我也会邀请其他学习者分享更多有用的资料，我也会继续分享我在ML、DL、Pytorch中学到的东西！ 🎯🎯🎯
+我首先将分享一些有用的材料。而且会邀请其他学习者分享更多有用的资料，我也会继续分享我在ML、DL、Pytorch中学到的东西！ 
 
 每个人都可以是这个 Repo 的上传者或读者。如果您想为其上传内容，请先联系我。 🎈🎈🎈
 
@@ -17,11 +17,9 @@
 >
 > 4️⃣ Pytorch进阶学习
 >
-> 5️⃣ Pytorch出神入化
+> 5️⃣ Pytorch 模板集
 >
-> 6️⃣ Pytorch 模板集（有用、强大）
->
-> 7️⃣ 机器学习和深度学习推荐资料（补充）
+> 6️⃣ 机器学习和深度学习推荐资料（补充）
 >
 > 正在更新...
 
@@ -41,15 +39,13 @@ This repo contains the following materials:
 >
 > 2️⃣ Conda environment configuration and Pytorch installation
 >
-> 3️⃣ Introductory learning of Pytorch,
+> 3️⃣ Introductory learning of Pytorch
 >
 > 4️⃣ Advanced learning of Pytorch
 >
-> 5️⃣ Superb learning of Pytorch
+> 5️⃣ Pytorch template set 
 >
-> 6️⃣ Pytorch template set (Useful, Powerful)
->
-> 7️⃣ Recommended materials for machine learning and deep learning(Addition)
+> 6️⃣  Recommended materials for machine learning and deep learning(Addition)
 >
 > updating...
 

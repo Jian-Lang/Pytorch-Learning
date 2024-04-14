@@ -1,0 +1,29 @@
+TRAIN:
+  DEVICE: "cuda:0"
+  MultiGPU: False
+  METRIC: 'BCE'
+  DATASET: "H_W"
+  SEED: 2024
+  BATCH_SIZE: 64
+  MAX_EPOCH: 30
+  EARLY_STOP_TURNS: 20
+  OUTPUT_PATH: "checkpoints"
+
+CHECKPOINTS:
+  LOAD_CHECKPOINT: True
+  PATH: "checkpoints/train_hwx_h_w_BCE_2024-04-09_17-25-33/checkpoint_3_epoch.pkl"
+
+MODEL:
+  MODEL_ID: "hwx"
+
+OPTIM:
+  NAME: "Adam"
+  LR: 0.00001
+
+DATASET:
+  H_W:
+    DATASET_ID: "h_w"
+    PATH: "data/h_w"
+
+
+

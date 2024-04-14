@@ -6,6 +6,18 @@
 </p>
 ```
 
+
+
+## 预备式：合理使用conda的环境管理
+
+> 建议在本地，先创建一个基础的pytorch环境，包含torch、numpy、pandas、matplotlib这些基本库
+>
+> 等具体任务时，利用clone命令克隆这个基础环境，并在这个新环境上修修补补
+
+------
+
+
+
 ## Part1: Pytorch创建数据集通用模板
 
 ### 1. 模板展示
@@ -108,23 +120,57 @@ class Model(torch.nn.Module):
 ### 1. 模板展示
 
 ```python
-import torch
-import os
+"""
+@author: Lobster
+@software: PyCharm
+@file: train.py
+@time: 2023/10/13 15:12
+"""
 import logging
-from torch.utils.data import DataLoader
-from xxx import Model
+import os
+import sys
+import argparse
 from datetime import datetime
 from tqdm import tqdm
 
-if __name__ == "__main__":
+import torch
+from torch.optim import Adam, SGD
+from torch.utils.data import DataLoader
 
-    # dataset id
+from dataset import MyData, custom_collate_fn
+from model import Model
 
-    dataset_id = "xxx"
 
-    # metric
+# 文本颜色设置
 
-    metric = "xxx"
+BLUE = '\033[94m'
+ENDC = '\033[0m'
+
+
+def print_init_msg(logger, args):
+
+    logger.info(BLUE + 'Device: ' + ENDC + f"{args.device} ")
+
+    logger.info(BLUE + 'Model: ' + ENDC + f"{args.model_id} ")
+
+    logger.info(BLUE + "Dataset: " + ENDC + f"{args.dataset_id}")
+
+    logger.info(BLUE + "Metric: " + ENDC + f"{args.metric}")
+
+    logger.info(BLUE + "Optimizer: " + ENDC + f"{args.optim}(lr = {args.lr})")
+
+    # logger.info(BLUE + "Learning Decay: " + ENDC + f"{args.decay_rate}")
+
+    logger.info(BLUE + "Total Epoch: " + ENDC + f"{args.epochs} Turns")
+
+    logger.info(BLUE + "Early Stop: " + ENDC + f"{args.early_stop_turns} Turns")
+
+    logger.info(BLUE + "Batch Size: " + ENDC + f"{args.batch_size}")
+
+    logger.info(BLUE + "Training Starts!" + ENDC)
+
+
+def make_saving_folder_and_logger(args):
 
     # 创建文件夹和日志文件，用于记录训练结果和模型
 
@@ -133,13 +179,18 @@ if __name__ == "__main__":
     timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
 
     # 定义文件夹名称
-    folder_name = f"train_{dataset_id}_{metric}_{timestamp}"
 
-    # 这里注意，要创建一个文件夹叫train_results，否则会报错
+    folder_name = f"train_{args.model_id}_{args.dataset_id}_{args.metric}_{timestamp}"
 
     # 指定文件夹的完整路径
 
-    folder_path = os.path.join("train_results", folder_name)
+    father_folder_name = args.save
+
+    if not os.path.exists(father_folder_name):
+
+        os.makedirs(father_folder_name)
+
+    folder_path = os.path.join(father_folder_name, folder_name)
 
     # 创建文件夹
 
@@ -163,7 +214,7 @@ if __name__ == "__main__":
 
     # 创建文件处理器
 
-    file_handler = logging.FileHandler(f'train_results/{folder_name}/log.txt')
+    file_handler = logging.FileHandler(f'{father_folder_name}/{folder_name}/log.txt')
 
     file_handler.setLevel(logging.INFO)
 
@@ -181,143 +232,237 @@ if __name__ == "__main__":
 
     logger.addHandler(file_handler)
 
+    return father_folder_name, folder_name, logger
+
+
+def delete_model(father_folder_name, folder_name, min_turn):
+
+    model_name_list = os.listdir(f"{father_folder_name}/{folder_name}/trained_model")
+
+    for i in range(len(model_name_list)):
+
+        if model_name_list[i] != f'model_{min_turn}.pth':
+
+            os.remove(os.path.join(f'{father_folder_name}/{folder_name}/trained_model', model_name_list[i]))
+
+
+def force_stop(msg):
+
+    print(msg)
+
+    sys.exit(1)
+
+
+def train_val(args):
+
+    # 通过args解析出所有参数
+
+    father_folder_name, folder_name, logger = make_saving_folder_and_logger(args)
+
+    # device
+
+    device = torch.device(args.device)
+
     # 加载数据集
 
-    train_data = xxx
+    train_data = MyData(os.path.join(args.dataset_path, args.dataset_id, 'train.pickle'))
 
-    test_data = xxx
+    valid_data = MyData(os.path.join(os.path.join(args.dataset_path, args.dataset_id, 'valid.pickle')))
 
-    batch_size = 256
+    train_data_loader = DataLoader(dataset=train_data, batch_size=args.batch_size, collate_fn=custom_collate_fn)
 
-    train_data_loader = DataLoader(dataset=train_data, batch_size=batch_size, collate_fn=xxx)
+    valid_data_loader = DataLoader(dataset=valid_data, batch_size=args.batch_size, collate_fn=custom_collate_fn)
 
-    test_data_loader = DataLoader(dataset=test_data, batch_size=batch_size, collate_fn=xxx)
+    # 加载模型
 
-    # 加载待训练的模型
+    model = Model(input_size=24)
 
-    model = Model(xxx)
-
-    model = model.to('cuda:0')
+    model = model.to(device)
 
     # 定义损失函数
 
-    loss_fn = torch.nn.xxxfunction()
+    if args.loss == 'BCE':
 
-    loss_fn.to('cuda:0')
+        loss_fn = torch.nn.BCELoss()
+
+    elif args.loss == 'MSE':
+
+        loss_fn = torch.nn.MSELoss()
+
+    else:
+
+        force_stop('Invalid parameter loss!')
+
+    loss_fn.to(device)
 
     # 定义优化器
 
-    learning_rate = 0.001
+    if args.optim == 'Adam':
 
-    optim = torch.optim.Adam(model.parameters(), learning_rate)
+        optim = Adam(model.parameters(), args.lr)
 
-    # 设置max_epoch,并在超过n轮没有好转的情况下，直接结束训练
+    elif args.optim == 'SGD':
 
-    max_epoch = 1000
+        optim = SGD(model.parameters(), args.lr)
 
-    max_no_optim_turn = 20
+    else:
+
+        force_stop('Invalid parameter optim!')
+
+    # # 定义学习率衰减
+    #
+    # decayRate = args.decay_rate
+    #
+    # scheduler = torch.optim.lr_scheduler.ExponentialLR(optimizer=optim, gamma=decayRate)
 
     # 定义训练过程的一些参数
 
-    total_train_step = 0
-
-    min_total_test_loss = 1008611
+    min_total_valid_loss = 1008611
 
     min_turn = 0
 
-    loss = 0
+    # 开始训练
 
-    # 训练部分
+    print_init_msg(logger, args)
 
-    for i in range(max_epoch):
+    for i in range(args.epochs):
 
-        logger.info(f"----------Epoch {i + 1} Start!----------")
+        logger.info(f"-----------------------------------Epoch {i + 1} Start!-----------------------------------")
 
-        # 训练环节
+        min_train_loss, total_valid_loss = run_one_epoch(model, loss_fn, optim,train_data_loader, valid_data_loader,device)
 
-        model.train()
-        
-        min_train_loss = 1008611
+        # scheduler.step()
 
-        for batch in tqdm(train_data_loader,desc='Training Progress'):
+        logger.info(f"[ Epoch {i + 1} (train) ]: loss = {min_train_loss}")
 
-            input_, target = batch
+        logger.info(f"[ Epoch {i + 1} (valid) ]: total_loss = {total_valid_loss}")
 
-            input_ = input_.to('cuda:0')
+        if total_valid_loss < min_total_valid_loss:
 
-            target = target.to('cuda:0')
-
-            output = model.forward(input_)
-
-            loss = loss_fn(output, target)
-
-            # 通过损失，优化参数
-
-            optim.zero_grad()
-
-            loss.backward()
-
-            optim.step()
-
-            total_train_step += 1
-            
-            if min_train_loss > loss:
-
-                min_train_loss = loss
-
-        logger.info(f"[ Epoch {i + 1} (train) ]: loss is {min_train_loss}")
-
-        # 测试环节
-
-        model.eval()
-
-        total_test_loss = 0
-
-        with torch.no_grad():
-
-            for batch in tqdm(test_data_loader,desc='Testing Progress'):
-
-                input_, target = batch
-
-                input_ = input_.to('cuda:0')
-
-                target = target.to('cuda:0')
-
-                output = model.forward(input_)
-
-                loss = loss_fn(output, target)
-
-                total_test_loss += loss
-
-        if total_test_loss < min_total_test_loss:
-
-            min_total_test_loss = total_test_loss
+            min_total_valid_loss = total_valid_loss
 
             min_turn = i + 1
 
-        logger.info(f"[ Epoch {i + 1} (test) ]: total_loss is {total_test_loss}")
+        logger.critical(f"Current Best Total Loss comes from Epoch {min_turn} , min_total_loss = {min_total_valid_loss}")
 
-        logger.critical(f"Current Best Total Loss comes from Epoch {min_turn} , min_total_loss = {min_total_test_loss}")
-
-        torch.save(model, f"train_results/{folder_name}/trained_model/model_{i + 1}.pth")
+        torch.save(model, f"{father_folder_name}/{folder_name}/trained_model/model_{i + 1}.pth")
 
         logger.info("Model has been saved successfully!")
 
-        if (i + 1) - min_turn > max_no_optim_turn:
+        if (i + 1) - min_turn > args.early_stop_turns:
 
             break
 
-# 删除掉垃圾模型
+    delete_model(father_folder_name, folder_name, min_turn)
 
-model_name_list = os.listdir(f"train_results/{folder_name}/trained_model")
+    logger.info(BLUE + "Training is ended!" + ENDC)
 
-for i in range(len(model_name_list)):
 
-    if model_name_list[i] != f'model_{min_turn}.pth':
+def run_one_epoch(model, loss_fn, optim, train_data_loader, valid_data_loader, device):
 
-        os.remove(os.path.join(f'train_results/{folder_name}/trained_model', model_name_list[i]))
+    # 训练部分
 
-logger.info("Training is ended!")
+    model.train()
+
+    min_train_loss = 1008611
+
+    for batch in tqdm(train_data_loader, desc='Training Progress'):
+
+        batch = [item.to(device) if isinstance(item, torch.Tensor) else item for item in batch]
+
+        aggregated_amounts, target = batch
+
+        target = target.type(torch.float32)
+
+        output = model.forward(aggregated_amounts)
+
+        loss = loss_fn(output, target)
+
+        # 通过损失，优化参数
+
+        optim.zero_grad()
+
+        loss.backward()
+
+        optim.step()
+
+        if min_train_loss > loss:
+
+            min_train_loss = loss
+
+    # 验证环节
+
+    model.eval()
+
+    total_valid_loss = 0
+
+    with torch.no_grad():
+
+        for batch in tqdm(valid_data_loader, desc='Validating Progress'):
+
+            batch = [item.to(device) if isinstance(item, torch.Tensor) else item for item in batch]
+
+            aggregated_amounts, target = batch
+
+            target = target.type(torch.float32)
+
+            output = model.forward(aggregated_amounts)
+
+            loss = loss_fn(output, target)
+
+            total_valid_loss += loss
+
+    return min_train_loss,total_valid_loss
+
+
+# 主函数，所有训练参数在这里调整
+
+def main():
+
+    # 创建一个ArgumentParser对象
+
+    parser = argparse.ArgumentParser()
+
+    # 运行前命令行参数设置
+
+    parser.add_argument('--device', default='cuda:0', type=str, help='device used in training')
+
+    parser.add_argument('--metric', default='MSE', type=str, help='the judgement of the training')
+
+    parser.add_argument('--save', default='train_results', type=str, help='folder to save the results')
+
+    parser.add_argument('--epochs', default=10, type=int, help='max number of training epochs')
+
+    # 注意，大的batch_size，梯度比较平滑，可以设置大的learning rate，vice visa
+
+    parser.add_argument('--batch_size', default=64, type=int, help='training batch size')
+
+    parser.add_argument('--early_stop_turns', default=3, type=int, help='early stop turns of training')
+
+    parser.add_argument('--loss', default='MSE', type=str, help='loss function, options: BCE, MSE')
+
+    parser.add_argument('--optim', default='Adam', type=str, help='optim, options: SGD, Adam')
+
+    parser.add_argument('--lr', default=1e-3, type=float, help='learning rate')
+
+    # trick: 先按1.0，即不decay学习率训练，震荡不收敛，可以适当下调
+
+    # parser.add_argument('--decay_rate', default=1.0, type=float, help='learning rate decay rate')
+
+    parser.add_argument('--dataset_id', default='gofundme', type=str, help='id of dataset')
+
+    parser.add_argument('--dataset_path', default='data', type=str, help='path of dataset')
+
+    parser.add_argument('--model_id', default='mlp', type=str, help='id of model')
+
+    args = parser.parse_args()
+
+    train_val(args)
+
+
+if __name__ == '__main__':
+
+    main()
 ```
 
 ------
@@ -602,7 +747,7 @@ if __name__ == '__main__':
 
 
 
-## Part7: Pytorch重要知识点笔记
+## Part7: Pytorch张量运算部分
 
 ### 1.张量之间的各种乘法与数乘
 
@@ -652,9 +797,70 @@ if __name__ == '__main__':
 
 #### 5.2张量类型转换
 
+------
+
+## Part8: Pytorch当中的重要函数
+
+### 1.线性操作
+
+
+
+### 2.张量初始化
+
+
+
+### 3.CNN主题
+
+
+
+### 4.RNN主题
+
+
+
+### 5.GNN主题
+
+
+
+### 6.激活函数主题
+
+
+
+### 7.其他重要函数
+
+#### 7.1嵌入层embedding
+
+下面是利用pytorch直接对一组内容生成对应的嵌入向量的代码：
+
+```python
+import torch
+import torch.nn as nn
+
+number_to_embedding = 5
+
+dim_of_embedding = 3
+
+embedding_layer = nn.Embedding(number_to_embedding, dim_of_embedding)
+```
+
+这个Embedding层，传参有两个，第一个是要生成的嵌入向量的个数，第二个是嵌入向量的维度，可以如下方式理解：
+
+假如我有五个单词，现在我要把五个单词每一个都生成一个三维的向量，作为它们的嵌入向量，那么第一个参数为5，第二个参数为3.
+
+之后，我们通过调用embedding_layer的forward函数即可获取对应的嵌入向量，比如我们要拿到第三个单词的嵌入向量：
+
+```python
+embedding_3 = embedding_layer(torch.tensor(2))
+```
+
+即直接把索引按tensor的形式传入即可拿到它的embedding。至于这个embedding的产生，目前认为是与随机化比较类似的方式。
+
+------
+
 
 
 ## Part8: sklearn常用函数速查
+
+
 
 ## Part9: Python数据处理(Additional)
 
@@ -1042,8 +1248,6 @@ a = np.array([[1,2,3],[4,5,6]],dtype = 'float')
 
 其他的方法，在之前第二部分也提到过，所有的那些方法基本上都支持生成高维的数组。
 
-------
-
 
 
 ##### 6.2 高维数组的索引
@@ -1381,7 +1585,17 @@ print(df.tail())
 
 
 
-##### 3.2删除某行
+##### 3.2 选中某些行（可用于dataframe的划分）
+
+```python
+df.iloc[start_index:end_index]
+```
+
+------
+
+
+
+##### 3.3 删除某行
 
 删除某一行，语法是这样的：
 
@@ -1394,11 +1608,65 @@ df.drop(index,inplace=True)
 
 其中，**inplace表示直接在原地对dataframe进行修改**(这个inplace在大部分pandas对dataframe操作的函数当中都有，建议都采用True的形式，节省代码)，而不只是返回一个修改后的对象，这样就不需要再额外将修改后的结果赋值了。
 
+注意，这里的index可以传一个列表进去，表示一次性删除多行
+
 ------
 
 
 
-##### 3.3添加一行
+##### 3.4 删除某些特定的行
+
+这个比较高级，意思是说，删除某一些行，这些行的某列值等于某些特定的数(不要用for循环，这里用for循环效率奇低！)
+
+首先，如果删除某些行，这些行的某列值等于某个数，可以这么写：
+
+```python
+import pandas as pd
+
+# 示例 DataFrame
+data = {'column_name': [1, 2, 3, 4, 5],
+        'other_column': ['a', 'b', 'c', 'd', 'e']}
+
+df = pd.DataFrame(data)
+
+# 删除 column_name 列中值为 value_to_remove 的行
+value_to_remove = 3
+df = df[df['column_name'] != value_to_remove]
+
+# 打印结果
+print(df)
+
+```
+
+接下来进阶，如果是这些行的值，放在一个list里，即删除一些行，这些行的某列的值放在一个list，可以这么写：
+
+```python
+import pandas as pd
+
+# 示例 DataFrame
+data = {'column_name': [1, 2, 3, 4, 5],
+        'other_column': ['a', 'b', 'c', 'd', 'e']}
+
+df = pd.DataFrame(data)
+
+# 要删除的值的列表
+values_to_remove = [3, 5]
+
+# 删除 column_name 列中包含在 values_to_remove 列表中的所有行
+df = df[~df['column_name'].isin(values_to_remove)]
+
+# 打印结果
+print(df)
+
+```
+
+
+
+------
+
+
+
+##### 3.5 添加一行
 
 通过下面的步骤，可以实现向一个dataframe当中添加一行的操作：
 
@@ -1440,7 +1708,7 @@ df = df._append(dit,ignore_index = True)
 
 
 
-##### 3.4行索引恢复
+##### 3.6 行索引恢复
 
 执行删除，或者一些分数据集的随机化行操作后，行索引会被打乱，此时执行下面的代码可以恢复行索引为顺序数列:
 
@@ -1448,7 +1716,7 @@ df = df._append(dit,ignore_index = True)
 import pandas as pd
 import numpy as np
 
-df.res_index(drop=True,inplace=True)
+df.reset_index(drop=True,inplace=True)
 ```
 
 这里的drop设置为True，则旧的索引会被删除，如果不设置，则旧的索引会成为dataframe的新的一列，完全没有必要，因此可以直接drop掉。
@@ -1457,11 +1725,11 @@ df.res_index(drop=True,inplace=True)
 
 
 
-#### 4.DataFrame的列操作
+#### 4. DataFrame的列操作
 
 接下来是DataFrame的一些简单的列操作
 
-##### 4.1删除某列
+##### 4.1 删除某列
 
 删除某一列的语法和删除某行的很相似，只是此时需要指明删除的方向：
 
@@ -1478,7 +1746,7 @@ df.drop('列索引名称',inplace=True,axis = 1)
 
 
 
-##### 4.2添加一列
+##### 4.2 添加一列
 
 添加一列在dataframe中非常简单，完全类似于字典添加新元素，只需要**创建一个list，这个list要和dataframe中已有的列长度相同**，而后用下面的语法添加：
 
@@ -1495,9 +1763,31 @@ df['new_list'] = new_list
 
 
 
-#### 5.DataFrame的高级查找
+##### 4.3 获取列标题
 
-##### 5.1单一条件查找
+```python
+column_name_list = df.columns.tolist()
+```
+
+------
+
+
+
+##### 4.4 列标题重命名
+
+```python
+column_name_list = df.columns.tolist()
+
+df = df.rename(columns={column_name_list[0]: 'new_name', column_name_list[1]: 'new_name', column_name_list[2]: 'new_name'})
+```
+
+------
+
+
+
+#### 5. DataFrame的高级查找
+
+##### 5.1 单一条件查找
 
 ```python
 import pandas as pd
@@ -1609,7 +1899,43 @@ df = df2[df2['id'].isin(df1['id'])]
 
 
 
-#### 6.DataFrame之Apply函数
+##### 5.4若干值列表查找
+
+当需要查找若干行，这些行的某一列值在一个列表里，可以用下面的代码：
+
+```python】
+import pandas as pd
+
+# 假设 df 是你的 DataFrame，column_name 是你要匹配的列名，values 是匹配的值列表
+# 提取 column_name 列中值在 values 列表中的行
+def extract_rows_by_column_values(df, column_name, values):
+    return df[df[column_name].isin(values)]
+
+# 示例 DataFrame
+data = {
+    'Name': ['Alice', 'Bob', 'Charlie', 'David', 'Emma'],
+    'Age': [25, 30, 35, 40, 45],
+    'Gender': ['F', 'M', 'M', 'M', 'F']
+}
+df = pd.DataFrame(data)
+
+# 要匹配的值列表
+values_to_match = ['Alice', 'Charlie', 'Emma']
+
+# 提取特定行
+result_df = extract_rows_by_column_values(df, 'Name', values_to_match)
+print(result_df)
+```
+
+------
+
+
+
+#### 6.DataFrame之Apply函数与空值查找
+
+```python
+df = df[(df['nouns'].apply(lambda x: len(x) > 0)) & (df['verbs'].apply(lambda x: len(x) > 0))]
+```
 
 
 
@@ -1657,10 +1983,6 @@ df.dropna(axis=0,inplace=True)
 
 
 
-##### 7.4异常值处理搭配Apply函数
-
-
-
 #### 8.DataFrame排序
 
 pandas提供了对dataframe进行排序的函数，可以让整个dataframe按照某一列或某几列属性列的值进行排序，语法如下:
@@ -1676,6 +1998,8 @@ df.sort_values(by=['评分','投票人数'],ascending=False,inplace=True)
 
 
 #### 9.DataFrame的合并
+
+##### 9.1 按行合并
 
 合并dataframe，可以使用concat函数，既可以执行按列合并，也可以按行合并，下面是一个按行合并的例子：
 
@@ -1698,12 +2022,14 @@ df1 = pd.DataFrame(
 )
 
 df2 = pd.DataFrame(
+    
     {
         '姓名': name_list[2:],
         '年龄': age_list[2:],
         '性别': sex_list[2:]
     }
 )
+
 
 df = pd.concat([df1,df2],ignore_index=True)
 ```
@@ -1733,6 +2059,29 @@ df2长这样：
 5  刘八  12  女
 
 注意，ignore_index是为了不保留旧的index，否则行索引会不连续，还需要再次重置，不如直接ignore旧的index，重新生成连续的index。
+
+------
+
+
+
+##### 9.2 按列合并
+
+一般情况，直接合并，on表示按那一列来合并，注意，这里是取交集的合并
+
+```python
+merged_df = pd.merge(df1, df2, on='xxx', how='inner')
+```
+
+合并后，去除重复列(重复的列只保留一列)：
+
+```python
+merged_df = pd.merge(df1, df2, on='xxx', how='inner', suffixes=('', '_df2'))
+
+# 选择要保留的列，这里选择保留 df1 的列
+result_df = merged_df[[col for col in merged_df.columns if '_df2' not in col]]
+```
+
+
 
 ------
 
@@ -1875,3 +2224,164 @@ python ../src/main.py 运行参数1 运行参数2 ...
 bash xxx.sh
 ```
 
+------
+
+
+
+### 5.数据集太大的解决方案
+
+先把原始数据集抽取前面一小部分(前若干行)，先把这一小部分在本地跑通，再在服务器上跑完整的数据集
+
+若空间不足，可采用挂载设备的方式节约空间
+
+------
+
+
+
+### 6.安装图神经网络库：torch_geometric
+
+#### 6.1 安装四个前置依赖项
+
+首先，进入这个网站：https://data.pyg.org/whl/，找到对应当前环境的python和torch、cuda版本的项：
+
+
+
+之后，再新开的页面，分别下载四个依赖：torch_scatter，torch_sparse，torch_cluster，torch_spline_conv
+
+
+
+其中，pt是pytorch版本，cu是cuda版本，cp是python版本，Windows下Windows的，其他的同样
+
+下好后，**cd到这四个文件对应的文件夹(四个依赖下载后，所在的文件夹)**，分别执行命令安装这**四个本地文件**，命令都是：
+
+```bash
+pip install 文件名
+```
+
+------
+
+
+
+#### 6.2 安装geometric
+
+之后，直接用pip指令安装geometric即可：
+
+```bash
+pip install torch_geometric
+```
+
+------
+
+
+
+### 7.zip函数
+
+zip函数可以打包多个list，也可以将打包的结果进行解包。
+
+打包多个list到一个list当中：
+
+```python
+# 假设有两个列表，一个存储姓名，另一个存储年龄
+names = ["Alice", "Bob", "Charlie"]
+
+ages = [25, 30, 22]
+
+# 使用 zip 函数将姓名和年龄打包在一起
+zipped_data = zip(names, ages)
+
+# 将结果转换为列表，方便查看
+result_list = list(zipped_data)
+
+result_list是：[('Alice', 25), ('Bob', 30), ('Charlie', 22)]
+
+```
+
+即两个list压缩到一个list里，新的list每一个元素都是一个n维的tuple，n是参与zip的list的数量。
+
+解包：
+
+```python
+names,ages = zip(*result_list)
+```
+
+通过zip(*)函数，将刚才的list放进去，就可以解包出两个list (此时是tuple的类型，再进行一步转换即可)。
+
+### 8.Baseline与主实验对比增幅代码
+
+```python
+baseline = 0.9132
+
+ours = 0.7149
+
+print(abs(ours - baseline) / baseline)
+```
+
+### 9.过滤warning
+
+```python
+import warnings
+warnings.filterwarnings('ignore', category=UserWarning)  # 忽略UserWarning类型的警告
+```
+
+### 10.模型可训练模式以及冻结参数
+
+#### 打印模型的训练部分和不训练部分
+
+```python
+def print_requires_grad(module, prefix=""):
+    for name, param in module.named_parameters():
+        if param.requires_grad:
+            status = "requires_grad"
+        else:
+            status = "does not require grad"
+        print(f"{prefix} - {name}: {status}")
+
+    for name, submodule in module.named_children():
+        print_requires_grad(submodule, prefix=f"{prefix}  {name}")
+```
+
+#### 冻结模型参数
+
+```python
+    def _freeze_layers(self, layers):
+
+        for layer in layers:
+
+            if layer is not None:
+
+                for param in layer.parameters():
+                    
+                    param.requires_grad = False
+```
+
+
+
+
+
+
+
+\documentclass{article}
+\usepackage{graphicx}
+\usepackage{subcaption}
+
+\begin{document}
+
+\begin{figure}
+  \begin{subfigure}{}
+    \centering
+    \includegraphics[width=0.45\linewidth]{image1.jpg}
+    \caption{下标1}
+    \label{fig:sub1}
+  \end{subfigure}%
+  \hfill
+  \begin{subfigure}{}
+    \centering
+    \includegraphics[width=0.45\linewidth]{image2.jpg}
+    \caption{下标2}
+    \label{fig:sub2}
+  \end{subfigure}
+  \caption{两张并排的图片}
+  \label{fig:combined}
+\end{figure}
+
+\end{document}
